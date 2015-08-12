@@ -1,0 +1,184 @@
+#!/usr/bin/env python
+
+import sys
+import re
+import os
+import os.path
+import argparse
+import logging
+import tempfile
+import subprocess
+import multiprocessing
+import shutil
+import boto3
+
+
+def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument('--bucket', metavar='<bucket>', required=True)
+    parser.add_argument('--seeds', metavar='<file>', required=True)
+    parser.add_argument('--buffer', metavar='<directory>', required=True)
+    args = parser.parse_args()
+
+    logging_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(format='crawler: %(levelname)s: %(message)s',
+                        level=logging_level)
+    boto3.set_stream_logger('boto3.resources', logging_level)
+
+    generator = ({
+        'ppid': row[0],
+        'depth': row[1],
+        'seeds': row[2:],
+        'bucket': args.bucket,
+        'buffer': args.buffer
+    } for row in inputFromS3(args.bucket, args.seeds))
+
+    pool = multiprocessing.Pool(200)
+    for message in pool.imap_unordered(fetch, generator):
+        logging.info(message)
+    pool.close()
+    pool.join()
+
+
+def fetch(opts):
+
+    with Content(opts['buffer'], opts['ppid']) as temp:
+        temp.fetch(opts['seeds'], opts['depth'])
+        temp.cleanup()
+        temp.upload(opts['bucket'])
+
+    return '{} ... done'.format(opts['ppid'])
+
+
+def inputFromS3(bucket, seeds):
+    try:
+        response = boto3.resource('s3').Object(bucket, seeds).get()
+
+        return (line.decode('utf-8').split(',')
+                for line in response.get('Body').read().splitlines())
+    except:
+        logging.exception("fetch 'crawler.seeds.csv' from bucket '%s' failed",
+                          bucket)
+        return (row for row in [])
+
+
+class Content(object):
+    def __init__(self, directory, ppid):
+        self.ppid = ppid
+        self.directory = directory
+        self.name = os.path.join(directory, ppid)
+        self.output = os.path.join(self.name, 'output')
+        self.seeds = os.path.join(self.name, 'seeds')
+        self.content = os.path.join(self.name, 'content')
+        os.mkdir(self.name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _type, _value, _traceback):
+        if self.name is not None:
+            shutil.rmtree(self.name)
+
+    def fetch(self, seeds, depth):
+
+        with open(self.seeds, 'a') as seed_handler:
+            for seed in seeds:
+                seed_handler.write(seed + '\n')
+            seed_handler.close()
+
+        exts = {
+            '.js', '.css', '.xml', '.atom', '.rss', '.jpeg', '.jpg', '.tif',
+            '.gif', '.bmp', '.png', '.svg', '.ttf', '.woff', '.psb', '.psd',
+            '.pdf', '.gz', '.bz2', '.zip', '.doc', '.docx', '.xls', '.xslx',
+            '.ppt', '.pptx', '.swf', '.flac', '.fla', '.mp3', '.mp4', '.wav',
+            '.wmv', '.mov'
+        }
+        reject = [elem for ext in exts for elem in
+                  ['--reject', '*' + ext, '--reject', '*' + ext.upper()]]
+
+        cmd = ['wget', '--recursive', '--level={}'.format(depth),
+               '--save-headers', '--tries=5', '--dns-timeout=30',
+               '--connect-timeout=5', '--read-timeout=5', '--timestamping',
+               '--wait=3', '--random-wait', '--no-parent', '--no-verbose',
+               '--no-check-certificate', '--input-file', self.seeds,
+               '--directory-prefix', self.content] + reject
+
+        with open(self.output, 'a') as output_handler:
+            logging.debug('execute %s', cmd)
+            child = subprocess.Popen(
+                cmd,
+                stdout=output_handler,
+                stderr=subprocess.STDOUT)
+            child.wait()
+            logging.info('wget %s finished %s', self.ppid, child.returncode)
+
+    def cleanup(self):
+
+        if not os.path.exists(self.content):
+            return
+
+        with open(self.output, 'a') as output:
+            output.write("cleanup started.\n")
+            for root, dirs, files in os.walk(self.content, topdown=False):
+                for name in files:
+                    filename = os.path.join(root, name)
+                    if not self._isTextContent(filename):
+                        os.remove(filename)
+                        output.write("removed file: {}\n".format(filename))
+                for name in dirs:
+                    try:
+                        dirname = os.path.join(root, name)
+                        os.rmdir(dirname)
+                        output.write("removed directory: {}\n".format(dirname))
+                    except:
+                        pass
+            output.write("cleanup finished.\n")
+
+    @staticmethod
+    def _isTextContent(filename):
+
+        logging.debug("checking.. %s", filename)
+
+        try:
+            with open(filename, 'r', 1,
+                      encoding='UTF-8',
+                      errors='ignore') as handle:
+                # get status line
+                status_line = handle.readline()
+                # get headers
+                headers_line = str()
+                while True:
+                    line = handle.readline()
+                    if '\r\n' == line or '\n' == line or not len(line):
+                        break
+                    headers_line += line
+
+                status = re.split(r'\s+', status_line)[1]
+                headers = re.findall(r"(?P<name>.*?): (?P<value>.*?)\n",
+                                     headers_line)
+                headers = {k.lower(): v for k, v in headers}
+
+                content = headers.get('content-type', 'unknown')
+
+                return re.match(r'^text/(html|plain)', content)
+        except Exception:
+            return False
+
+    def upload(self, bucket):
+
+        p1 = subprocess.Popen(
+            ['tar', '-c', '-C', self.directory, '-z', '-f', '-', self.ppid],
+            stdout=subprocess.PIPE)
+
+        boto3.resource('s3') \
+             .Bucket(bucket) \
+             .put_object(Key=self.ppid + '-content.tar.gz',
+                         ContentType='application/x-tar',
+                         Body=p1.stdout.read())
+        p1.wait()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
