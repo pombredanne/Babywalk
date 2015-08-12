@@ -1,8 +1,8 @@
 # Babywalk
 
-It's a web crawler based on [[GNU Wget][WgetHomepage]]. It reads its input
-from [[Amazon S3][S3Homepage]] bucket and writes its output to the same
-bucket. It's running inside a [[docker][DockerHomepage]] container.
+It's a web crawler based on [GNU Wget][WgetHomepage]. It reads its input
+from [Amazon S3][S3Homepage] bucket and writes its output to the same
+bucket. It's running inside a [docker][DockerHomepage] container.
 
 [WgetHomepage]: http://www.gnu.org/software/wget/
 [S3Homepage]: https://aws.amazon.com/s3/
