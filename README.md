@@ -18,7 +18,7 @@ The input file shall have CSV like format, where:
 
 An example could be:
 
-    1234,1,http://example.com/
+    1234,1,http://example.com/,http://example.de/
 
 ## Output format
 
@@ -54,6 +54,10 @@ the filtering and return `403 Forbidden` when the type shouldn't be accepted.
 To improve the idea of proxy filtering. The proxy can send `INFO` request
 instead of `GET` first. And resend the `GET` only if the content type is
 okay.
+
+Currently the container stops when all URL is fetched. Another approach could
+be that it runs an HTTP server, where status can be quieried and seeds can be
+uploaded.
 
 ## Problem reports
 
