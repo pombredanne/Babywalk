@@ -10,7 +10,7 @@ bucket. It's running inside a [docker][DockerHomepage] container.
 
 ## Input format
 
-The input file shall have CSV like format, where:
+The input file shall have Tab-Separated-Values like format, where:
 
 * the first column represent some identifier,
 * the second column is the depth of the crawling,
@@ -18,7 +18,7 @@ The input file shall have CSV like format, where:
 
 An example could be:
 
-    1234,1,http://example.com/,http://example.de/
+    1234    1   http://example.com/
 
 ## Output format
 
@@ -41,6 +41,7 @@ To run the container with the same tag as before:
 
     $ docker run --env AWS_ACCESS_KEY_ID=<your_aws_access_key> \
                  --env AWS_SECRET_ACCESS_KEY=<your_aws_secret_key> \
+                 -v <directory_from_host>:/data \
                  -i -t crawler \
                  --bucket <s3_bucket_name> \
                  --seeds <file_name_on_s3_bucket>

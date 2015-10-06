@@ -1,6 +1,6 @@
 FROM base/archlinux
 
-RUN pacman -Sy --noconfirm wget python python-pip
+RUN pacman -Sy --noconfirm wget openssl python python-pip
 
 ADD . /opt/crawler
 RUN pip install -r /opt/crawler/requirements.txt

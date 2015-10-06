@@ -35,7 +35,7 @@ def main():
         'buffer': args.buffer
     } for row in inputFromS3(args.bucket, args.seeds))
 
-    pool = multiprocessing.Pool(200)
+    pool = multiprocessing.Pool(300)
     for message in pool.imap_unordered(fetch, generator):
         logging.info(message)
     pool.close()
@@ -56,11 +56,11 @@ def inputFromS3(bucket, seeds):
     try:
         response = boto3.resource('s3').Object(bucket, seeds).get()
 
-        return (line.decode('utf-8').split(',')
+        return (line.decode('utf-8').split('\t')
                 for line in response.get('Body').read().splitlines())
     except:
-        logging.exception("fetch 'crawler.seeds.csv' from bucket '%s' failed",
-                          bucket)
+        logging.exception("fetch '%s' from bucket '%s' failed",
+                          seeds, bucket)
         return (row for row in [])
 
 
@@ -101,7 +101,7 @@ class Content(object):
         cmd = ['wget', '--recursive', '--level={}'.format(depth),
                '--save-headers', '--tries=5', '--dns-timeout=30',
                '--connect-timeout=5', '--read-timeout=5', '--timestamping',
-               '--wait=3', '--random-wait', '--no-parent', '--no-verbose',
+               '--wait=5', '--random-wait', '--no-parent', '--no-verbose',
                '--no-check-certificate', '--input-file', self.seeds,
                '--directory-prefix', self.content] + reject
 
