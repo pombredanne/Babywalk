@@ -81,9 +81,13 @@ class Content(object):
         if self.name is not None:
             shutil.rmtree(self.name)
 
+    def open_output(self):
+        return open(self.output, mode='a', buffering=1,
+                    encoding='UTF-8', errors='replace')
+
     def fetch(self, seeds, depth):
 
-        with open(self.seeds, 'a') as seed_handler:
+        with open(self.seeds, mode='a', encoding='UTF-8') as seed_handler:
             for seed in seeds:
                 seed_handler.write(seed + '\n')
             seed_handler.close()
@@ -105,11 +109,11 @@ class Content(object):
                '--no-check-certificate', '--input-file', self.seeds,
                '--directory-prefix', self.content] + reject
 
-        with open(self.output, 'a') as output_handler:
+        with self.open_output() as output:
             logging.debug('execute %s', cmd)
             child = subprocess.Popen(
                 cmd,
-                stdout=output_handler,
+                stdout=output,
                 stderr=subprocess.STDOUT)
             child.wait()
             logging.info('wget %s finished %s', self.ppid, child.returncode)
@@ -119,7 +123,7 @@ class Content(object):
         if not os.path.exists(self.content):
             return
 
-        with open(self.output, 'a') as output:
+        with self.open_output() as output:
             output.write("cleanup started.\n")
             for root, dirs, files in os.walk(self.content, topdown=False):
                 for name in files:
@@ -142,9 +146,8 @@ class Content(object):
         logging.debug("checking.. %s", filename)
 
         try:
-            with open(filename, 'r', 1,
-                      encoding='UTF-8',
-                      errors='ignore') as handle:
+            with open(filename, mode='r', buffering=1,
+                      encoding='UTF-8', errors='ignore') as handle:
                 # get status line
                 status_line = handle.readline()
                 # get headers
