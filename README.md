@@ -22,14 +22,8 @@ An example could be:
 
 ## Output format
 
-The output will be a tar file, which content is:
-
-* file `output` has the fetch and cleanup logs,
-* file `seeds` has the seed URLs,
-* directory `content` has the result of the crawl.
-
-The `content` directory might be missing when wget could not get anything back.
-(eg.: no DNS entry for the site.)
+The output will be a gziped warc file. The filename is created from
+the given identifier and with extension '.warc.gz'.
 
 ## How to build and run
 

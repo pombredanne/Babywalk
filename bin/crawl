@@ -6,7 +6,6 @@ import os
 import os.path
 import argparse
 import logging
-import tempfile
 import subprocess
 import multiprocessing
 import shutil
@@ -25,7 +24,7 @@ def main():
     logging_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(format='crawler: %(levelname)s: %(message)s',
                         level=logging_level)
-    boto3.set_stream_logger('boto3.resources', logging_level)
+    boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
 
     generator = ({
         'ppid': row[0],
@@ -46,7 +45,6 @@ def fetch(opts):
 
     with Content(opts['buffer'], opts['ppid']) as temp:
         temp.fetch(opts['seeds'], opts['depth'])
-        temp.cleanup()
         temp.upload(opts['bucket'])
 
     return '{} ... done'.format(opts['ppid'])
@@ -81,12 +79,7 @@ class Content(object):
         if self.name is not None:
             shutil.rmtree(self.name)
 
-    def open_output(self):
-        return open(self.output, mode='a', buffering=1,
-                    encoding='UTF-8', errors='replace')
-
     def fetch(self, seeds, depth):
-
         with open(self.seeds, mode='a', encoding='UTF-8') as seed_handler:
             for seed in seeds:
                 seed_handler.write(seed + '\n')
@@ -99,88 +92,34 @@ class Content(object):
             '.ppt', '.pptx', '.swf', '.flac', '.fla', '.mp3', '.mp4', '.wav',
             '.wmv', '.mov'
         }
-        reject = [elem for ext in exts for elem in
-                  ['--reject', '*' + ext, '--reject', '*' + ext.upper()]]
 
         cmd = ['wget', '--recursive', '--level={}'.format(depth),
-               '--save-headers', '--tries=5', '--dns-timeout=30',
-               '--connect-timeout=5', '--read-timeout=5', '--timestamping',
-               '--wait=5', '--random-wait', '--no-parent', '--no-verbose',
+               '--tries=5', '--dns-timeout=30', '--connect-timeout=5',
+               '--read-timeout=5', '--timestamping', '--wait=5',
+               '--random-wait', '--no-parent', '--no-verbose',
                '--no-check-certificate', '--input-file', self.seeds,
-               '--directory-prefix', self.content] + reject
+               '--reject=' + ','.join(exts),
+               '--reject=' + ','.join(ext.upper() for ext in exts),
+               '--warc-file', os.path.join(self.name, self.ppid),
+               '--warc-tempdir', self.content]
 
-        with self.open_output() as output:
-            logging.debug('execute %s', cmd)
-            child = subprocess.Popen(
-                cmd,
-                stdout=output,
-                stderr=subprocess.STDOUT)
-            child.wait()
-            logging.info('wget %s finished %s', self.ppid, child.returncode)
-
-    def cleanup(self):
-
-        if not os.path.exists(self.content):
-            return
-
-        with self.open_output() as output:
-            output.write("cleanup started.\n")
-            for root, dirs, files in os.walk(self.content, topdown=False):
-                for name in files:
-                    filename = os.path.join(root, name)
-                    if not self._isTextContent(filename):
-                        os.remove(filename)
-                        output.write("removed file: {}\n".format(filename))
-                for name in dirs:
-                    try:
-                        dirname = os.path.join(root, name)
-                        os.rmdir(dirname)
-                        output.write("removed directory: {}\n".format(dirname))
-                    except:
-                        pass
-            output.write("cleanup finished.\n")
-
-    @staticmethod
-    def _isTextContent(filename):
-
-        logging.debug("checking.. %s", filename)
-
-        try:
-            with open(filename, mode='r', buffering=1,
-                      encoding='UTF-8', errors='ignore') as handle:
-                # get status line
-                status_line = handle.readline()
-                # get headers
-                headers_line = str()
-                while True:
-                    line = handle.readline()
-                    if '\r\n' == line or '\n' == line or not len(line):
-                        break
-                    headers_line += line
-
-                status = re.split(r'\s+', status_line)[1]
-                headers = re.findall(r"(?P<name>.*?): (?P<value>.*?)\n",
-                                     headers_line)
-                headers = {k.lower(): v for k, v in headers}
-
-                content = headers.get('content-type', 'unknown')
-
-                return re.match(r'^text/(html|plain)', content)
-        except Exception:
-            return False
+        logging.debug('execute %s', cmd)
+        ec = subprocess.call(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        logging.info('%s %s finished %s', cmd[0], self.ppid, ec)
 
     def upload(self, bucket):
+        filename = self.ppid + '.warc.gz'
+        result_path = os.path.join(self.name, filename)
 
-        p1 = subprocess.Popen(
-            ['tar', '-c', '-C', self.directory, '-z', '-f', '-', self.ppid],
-            stdout=subprocess.PIPE)
+        if not os.path.exists(result_path):
+            return
 
-        boto3.resource('s3') \
-             .Bucket(bucket) \
-             .put_object(Key=self.ppid + '-content.tar.gz',
-                         ContentType='application/x-tar',
-                         Body=p1.stdout.read())
-        p1.wait()
+        with open(result_path, mode='rb') as handle:
+            boto3.resource('s3') \
+                 .Bucket(bucket) \
+                 .put_object(Key=filename,
+                             ContentType='application/x-gzip',
+                             Body=handle.read())
 
 
 if __name__ == '__main__':
