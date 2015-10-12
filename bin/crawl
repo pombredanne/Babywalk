@@ -1,74 +1,91 @@
 #!/usr/bin/env python
 
 import sys
-import re
 import os
 import os.path
 import argparse
 import logging
 import subprocess
-import multiprocessing
 import shutil
 import boto3
+import pika
+import json
 
 
 def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='count', default=0)
-    parser.add_argument('--bucket', metavar='<bucket>', required=True)
-    parser.add_argument('--seeds', metavar='<file>', required=True)
-    parser.add_argument('--buffer', metavar='<directory>', required=True)
+    parser.add_argument('--tempdir', metavar='<directory>', required=True)
     args = parser.parse_args()
 
     logging_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(format='crawler: %(levelname)s: %(message)s',
+    logging.basicConfig(format='crawl: %(levelname)s: %(message)s',
                         level=logging_level)
     boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
 
-    generator = ({
-        'ppid': row[0],
-        'depth': row[1],
-        'seeds': row[2:],
-        'bucket': args.bucket,
-        'buffer': args.buffer
-    } for row in inputFromS3(args.bucket, args.seeds))
+    input_queue_name = 'crawler-input'
+    output_queue_name = 'crawler-output'
 
-    pool = multiprocessing.Pool(300)
-    for message in pool.imap_unordered(fetch, generator):
-        logging.info(message)
-    pool.close()
-    pool.join()
+    connection = pika.BlockingConnection(pika.ConnectionParameters())
 
+    channel = connection.channel()
 
-def fetch(opts):
+    channel.queue_declare(queue=input_queue_name,
+                          durable=True,
+                          exclusive=False,
+                          auto_delete=False)
 
-    with Content(opts['buffer'], opts['ppid']) as temp:
-        temp.fetch(opts['seeds'], opts['depth'])
-        temp.upload(opts['bucket'])
+    channel.queue_declare(queue=output_queue_name,
+                          durable=True,
+                          exclusive=False,
+                          auto_delete=False)
 
-    return '{} ... done'.format(opts['ppid'])
+    channel.basic_qos(prefetch_count=1)
+    channel.basic_consume(create_callback(args.tempdir, output_queue_name),
+                          queue=input_queue_name)
 
-
-def inputFromS3(bucket, seeds):
     try:
-        response = boto3.resource('s3').Object(bucket, seeds).get()
+        channel.start_consuming()
+    except KeyboardInterrupt:
+        channel.stop_consuming()
+    finally:
+        connection.close()
 
-        return (line.decode('utf-8').split('\t')
-                for line in response.get('Body').read().splitlines())
-    except:
-        logging.exception("fetch '%s' from bucket '%s' failed",
-                          seeds, bucket)
-        return (row for row in [])
+
+def create_callback(tempdir, report_queue_name):
+
+    def callback(ch, method, properties, body):
+
+        logging.debug("received %s", body)
+        opts = json.loads(body.decode('utf-8', 'strict'))
+        opts.update({'directory': tempdir})
+
+        object_name = Content.get(opts)
+
+        # acknowledge the request
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+        # report the result
+        message = {
+            'result': object_name,
+            'uid': opts['uid'],
+            'seed': opts['seed'],
+            'depth': opts['depth']
+        }
+        ch.basic_publish(exchange='',
+                         routing_key=report_queue_name,
+                         body=json.dumps(message,
+                                         ensure_ascii=False),
+                         properties=pika.BasicProperties(
+                             content_type='application/json'))
+
+    return callback
 
 
 class Content(object):
-    def __init__(self, directory, ppid):
-        self.ppid = ppid
-        self.directory = directory
-        self.name = os.path.join(directory, ppid)
-        self.output = os.path.join(self.name, 'output')
-        self.seeds = os.path.join(self.name, 'seeds')
+    def __init__(self, directory, uid):
+        self.uid = uid
+        self.name = os.path.join(directory, uid)
         self.content = os.path.join(self.name, 'content')
         os.mkdir(self.name)
 
@@ -79,12 +96,7 @@ class Content(object):
         if self.name is not None:
             shutil.rmtree(self.name)
 
-    def fetch(self, seeds, depth):
-        with open(self.seeds, mode='a', encoding='UTF-8') as seed_handler:
-            for seed in seeds:
-                seed_handler.write(seed + '\n')
-            seed_handler.close()
-
+    def fetch(self, seed, depth):
         exts = {
             '.js', '.css', '.xml', '.atom', '.rss', '.jpeg', '.jpg', '.tif',
             '.gif', '.bmp', '.png', '.svg', '.ttf', '.woff', '.psb', '.psd',
@@ -93,22 +105,23 @@ class Content(object):
             '.wmv', '.mov'
         }
 
-        cmd = ['wget', '--recursive', '--level={}'.format(depth),
-               '--tries=5', '--dns-timeout=30', '--connect-timeout=5',
-               '--read-timeout=5', '--timestamping', '--wait=5',
-               '--random-wait', '--no-parent', '--no-verbose',
-               '--no-check-certificate', '--input-file', self.seeds,
+        cmd = ['wget', '--recursive', '--level={}'.format(depth), '--tries=5',
+               '--dns-timeout=30', '--connect-timeout=5', '--read-timeout=5',
+               '--timestamping', '--wait=5', '--random-wait', '--no-parent',
+               '--no-verbose', '--no-check-certificate',
                '--reject=' + ','.join(exts),
                '--reject=' + ','.join(ext.upper() for ext in exts),
-               '--warc-file', os.path.join(self.name, self.ppid),
-               '--warc-tempdir', self.content]
+               '--warc-file', os.path.join(self.name, self.uid),
+               '--warc-tempdir', self.content, seed]
 
         logging.debug('execute %s', cmd)
-        ec = subprocess.call(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        logging.info('%s %s finished %s', cmd[0], self.ppid, ec)
+        ec = subprocess.call(cmd,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT)
+        logging.info('%s %s finished %s', cmd[0], self.uid, ec)
 
     def upload(self, bucket):
-        filename = self.ppid + '.warc.gz'
+        filename = self.uid + '.warc.gz'
         result_path = os.path.join(self.name, filename)
 
         if not os.path.exists(result_path):
@@ -120,6 +133,15 @@ class Content(object):
                  .put_object(Key=filename,
                              ContentType='application/x-gzip',
                              Body=handle.read())
+
+        return 's3://{}/{}'.format(bucket, filename)
+
+    @staticmethod
+    def get(opts):
+
+        with Content(opts['directory'], opts['uid']) as temp:
+            temp.fetch(opts['seed'], opts['depth'])
+            return temp.upload(opts['bucket'])
 
 
 if __name__ == '__main__':
