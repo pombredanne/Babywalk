@@ -4,11 +4,10 @@ import sys
 import argparse
 import logging
 import boto3
-import pika
-import json
+import multiprocessing
 
-from libbabywalk import SEED_CRAWLER_QUEUE, CRAWLER_REPORT_QUEUE, create_queue, send_message
-from libbabywalk.fetch import Content
+from libbabywalk.db import get_request, set_completed
+from libbabywalk.fetch import fetch_and_upload
 
 
 def main():
@@ -23,38 +22,32 @@ def main():
                         level=logging_level)
     boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
 
-    connection = pika.BlockingConnection(pika.ConnectionParameters())
-    channel = connection.channel()
-    create_queue(channel, SEED_CRAWLER_QUEUE)
-    create_queue(channel, CRAWLER_REPORT_QUEUE)
-
-    channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(create_callback(args.tempdir, CRAWLER_REPORT_QUEUE),
-                          queue=SEED_CRAWLER_QUEUE)
-
-    try:
-        channel.start_consuming()
-    except KeyboardInterrupt:
-        channel.stop_consuming()
-    finally:
-        connection.close()
+    pool = multiprocessing.Pool(300)
+    pool.imap_unordered(fetch, generator()):
+    pool.close()
+    pool.join()
 
 
-def create_callback(tempdir, report_queue_name):
+def generator(db):
 
-    def callback(ch, method, properties, body):
+    client = pymongo.MongoClient()
+    db = client.crawling
 
-        logging.debug("received %s", body)
-        opts = json.loads(body.decode('utf-8', 'strict'))
-        opts.update({'directory': tempdir})
+    while True:
+        item = get_request(db)
+        if item:
+            yield item
+        else:
+            break
 
-        for result in Content.get(opts)
-            send_message(ch, report_queue_name, result)
 
-        # acknowledge the request
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+def fetch(request):
 
-    return callback
+    client = pymongo.MongoClient()
+    db = client.crawling
+
+    for request, result in fetch_and_upload(request):
+        set_completed(db, request, result)
 
 
 if __name__ == '__main__':
