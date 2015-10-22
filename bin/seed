@@ -3,17 +3,18 @@
 import sys
 import argparse
 import logging
-import pika
-import json
+import uuid
+import pymongo
 
-from libbabywalk import SEED_CRAWLER_QUEUE, SEED_REPORT_QUEUE, create_queue, send_message
-from libbabywalk.inputs import rows_from_tsv, filter_ppid_and_seed, group_seeds_by_hostname
+from libbabywalk.inputs import rows_from_tsv, filter_ppid_and_seed
+from libbabywalk.db import record_request
 
 
 def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument('--mongo', metavar='<mongo url>', required=True)
     parser.add_argument('--input',
                         metavar='<file>',
                         dest='seeds',
@@ -27,29 +28,27 @@ def main():
     logging.basicConfig(format='seed: %(levelname)s: %(message)s',
                         level=logging_level)
 
-    connection = pika.BlockingConnection(pika.ConnectionParameters())
-    channel = connection.channel()
-    create_queue(channel, SEED_CRAWLER_QUEUE)
-    create_queue(channel, SEED_REPORT_QUEUE)
+    client = pymongo.MongoClient(args.mongo)
+    db = client.crawling
 
-    seed_ppid_generator = filter_ppid_and_seed(rows_from_tsv(args.seeds))
-    reported_seeds = report_seed(seed_ppid_generator, channel)
-    grouped_seeds = group_seeds_by_hostname(reported_seeds)
-
-    for seeds in grouped_seeds:
-        send_message(channel, SEED_CRAWLER_QUEUE, {
-                                                      'seeds': seeds,
-                                                      'depth': args.depth,
-                                                      'bucket': args.bucket,
-                                                      'tag': args.tag
-                                                  })
-    connection.close()
+    for seed in filter_ppid_and_seed(rows_from_tsv(args.seeds)):
+        request = make_request(seed['url'], args)
+        record_request(db, seed, request)
 
 
-def report_seed(iterator, channel):
-    for message in iterator:
-        send_message(channel, SEED_REPORT_QUEUE, message)
-        yield message
+def make_request(url, args):
+
+    uid = str(uuid.uuid3(uuid.NAMESPACE_URL, url))
+    return {
+        'fetch': {
+            'url': url,
+            'depth': args.depth
+        },
+        'upload': {
+            'bucket': args.bucket,
+            'object': '{}.{}.warc.gz'.format(uuid, args.tag)
+        }
+    }
 
 
 if __name__ == '__main__':

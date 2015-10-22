@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 
 from setuptools import setup
+import os
+
+with open('requirements.txt') as f:
+    required = f.read().splitlines()
 
 setup(
     name="Babywalk",
@@ -13,5 +17,6 @@ setup(
     url='https://github.com/rizsotto/Babywalk',
     long_description=open('README.md').read(),
     scripts=['bin/crawl'],
-    install_requires=["boto3"]
+    install_requires=required,
+    test_suite = 'nose.collector'
 )
