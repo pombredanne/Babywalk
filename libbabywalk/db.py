@@ -86,3 +86,8 @@ def set_completed(db, request, result):
                     }
                 }
             })
+
+
+def query_completed(db, state):
+
+    return db.places.find({'state': state}, projection={'_id': False, 'results': True})
