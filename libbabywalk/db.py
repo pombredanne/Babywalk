@@ -88,6 +88,6 @@ def set_completed(db, request, result):
             })
 
 
-def query_completed(db, state):
+def query_completed(db):
 
-    return db.places.find({'state': state}, projection={'_id': False, 'results': True})
+    return db.places.find({'state': State.Completed}, projection={'_id': False, 'results': True})

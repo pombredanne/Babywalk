@@ -6,7 +6,7 @@ import logging
 import uuid
 import pymongo
 
-from libbabywalk.inputs import rows_from_tsv, filter_ppid_and_seed
+from libbabywalk.inputs import read_seeds_from_file
 from libbabywalk.db import record_request
 
 
@@ -31,8 +31,10 @@ def main():
     client = pymongo.MongoClient(args.mongo)
     db = client.crawling
 
-    for seed in filter_ppid_and_seed(rows_from_tsv(args.seeds)):
+    for seed in read_seeds_from_file(args.seeds):
+        logging.debug('file entry: %s', seed)
         request = make_request(seed['url'], args)
+        logging.debug('created request: %s', request)
         record_request(db, seed, request)
 
 

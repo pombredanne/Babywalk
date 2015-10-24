@@ -48,6 +48,7 @@ def _upload(request, warc_file):
                          ContentType='application/x-gzip',
                          Body=handle.read())
 
+    logging.info('content uploaded to %s bucket as %s', request['bucket'], request['object'])
     return 's3://{}/{}'.format(request['bucket'], request['object'])
 
 

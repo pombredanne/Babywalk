@@ -34,9 +34,10 @@ def generator(db):
     db = client.crawling
 
     while True:
-        item = get_request(db)
-        if item:
-            yield item
+        request = get_request(db)
+        if request:
+            logging.debug('dispatch request from db: %s', request)
+            yield request
         else:
             break
 
