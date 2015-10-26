@@ -1,6 +1,5 @@
 import os
 import os.path
-import boto3
 import logging
 import subprocess
 import tempfile
@@ -32,7 +31,7 @@ def fetch_warc(request, working_dir):
                          cwd=working_dir,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT)
-    logging.info('finished crawling %s with %s', cmd[-1], ec)
+    logging.debug('finished crawling %s with %s', cmd[-1], ec)
     return os.path.join(working_dir, 'result.warc.gz')
 
 
@@ -41,6 +40,8 @@ def _upload(request, result_file):
     if not os.path.exists(result_file):
         return None
 
+    import boto3
+    boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
     with open(result_file, mode='rb') as handle:
         boto3.resource('s3') \
              .Bucket(request['bucket']) \
@@ -55,7 +56,12 @@ def _upload(request, result_file):
 def fetch_and_upload(requests, directory):
 
     for request in requests:
-        with tempfile.TemporaryDirectory(dir=directory) as tmpdir:
-            warcfile = fetch_warc(request['fetch'], tmpdir)
-            result = _upload(request['upload'], warcfile)
+        try:
+            with tempfile.TemporaryDirectory(dir=directory) as tmpdir:
+                warcfile = fetch_warc(request['fetch'], tmpdir)
+                result = _upload(request['upload'], warcfile)
+        except Exception:
+            logging.exception('problem with crawling "%s"', request['fetch']['url'])
+            result = 'failed to crawl'
+        finally:
             yield (request, result)

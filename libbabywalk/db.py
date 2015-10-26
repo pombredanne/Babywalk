@@ -44,7 +44,6 @@ def record_request(db, seed, request):
 
 
 def get_request(db):
-
     def flatten(iterator):
         return (item for sublist in iterator for item in sublist)
 
@@ -52,42 +51,49 @@ def get_request(db):
     if not pivot:
         return None
 
-    filter_ = { 'host': pivot['host'], 'state': State.Requested }
+    filter_ = {'host': pivot['host'], 'state': State.Requested}
 
     result = db.places.find(filter_, projection={'requests': True})
     requests = list(flatten(entry['requests'] for entry in result))
 
-    db.places.update_many(filter_, { '$set': { 'state': State.Running } })
+    db.places.update_many(filter_, {'$set': {'state': State.Running}})
 
     return requests
 
 
 def set_completed(db, request, result):
 
-    entry = db.places.find_one({'seed': request['fetch']['url']})
-    if not entry:
-        logging.error('fetch completed for seed which was not found')
-    else:
-        state = State.Running if len(entry['requests']) > 1 else State.Completed
-        db.places.update_one(
-            {
-                'seed': request['fetch']['url']
-            }, {
-                '$set': {
-                    'state': state
-                },
-                '$pull': {
-                    'requests': request
-                },
-                '$addToSet': {
-                    'results': {
-                        'request': request,
-                        'result': result
-                    }
+    db.places.update_one(
+        {
+            'seed': request['fetch']['url']
+        }, {
+            '$set': {
+                'state': State.Completed
+            },
+            '$pull': {
+                'requests': request
+            },
+            '$addToSet': {
+                'results': {
+                    'request': request['fetch'],
+                    'result': result
                 }
-            })
+            }
+        })
 
 
 def query_completed(db):
 
-    return db.places.find({'state': State.Completed}, projection={'_id': False, 'results': True})
+    for entry in db.places.find(
+        {'state': State.Completed},
+        projection=
+        {'_id': False,
+         'seed': True,
+         'results': True,
+         'ppids': True}):
+        for result in entry['results']:
+            yield {
+                'seed': entry['seed'],
+                'ppids': entry['ppids'],
+                'results': result['result']
+            }

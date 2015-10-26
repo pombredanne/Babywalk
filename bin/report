@@ -4,6 +4,7 @@ import sys
 import argparse
 import logging
 import json
+import pymongo
 
 from libbabywalk.db import query_completed
 

@@ -21,7 +21,7 @@ def main():
                         required=True)
     parser.add_argument('--bucket', metavar='<bucket>', required=True)
     parser.add_argument('--depth', metavar='<number>', required=True)
-    parser.add_argument('--tag', default='first')
+    parser.add_argument('--tag', default='content')
     args = parser.parse_args()
 
     logging_level = logging.DEBUG if args.verbose else logging.INFO
@@ -40,7 +40,7 @@ def main():
 
 def make_request(url, args):
 
-    uid = str(uuid.uuid3(uuid.NAMESPACE_URL, url))
+    uid = uuid.uuid3(uuid.NAMESPACE_URL, url)
     return {
         'fetch': {
             'url': url,
@@ -48,7 +48,7 @@ def make_request(url, args):
         },
         'upload': {
             'bucket': args.bucket,
-            'object': '{}.{}.warc.gz'.format(uuid, args.tag)
+            'object': '{}.{}.warc.gz'.format(str(uid), args.tag)
         }
     }
 

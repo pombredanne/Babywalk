@@ -3,11 +3,14 @@
 import sys
 import argparse
 import logging
-import boto3
 import multiprocessing
+import pymongo
 
 from libbabywalk.db import get_request, set_completed
 from libbabywalk.fetch import fetch_and_upload
+
+
+WORKER_STATE = None
 
 
 def main():
@@ -20,15 +23,14 @@ def main():
     logging_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(format='crawl: %(levelname)s: %(message)s',
                         level=logging_level)
-    boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
 
-    pool = multiprocessing.Pool(300)
-    pool.imap_unordered(fetch, generator()):
+    pool = multiprocessing.Pool(400, initializer=worker_init)
+    pool.imap_unordered(worker, generator(args.tempdir))
     pool.close()
     pool.join()
 
 
-def generator(db):
+def generator(work_dir):
 
     client = pymongo.MongoClient()
     db = client.crawling
@@ -36,18 +38,23 @@ def generator(db):
     while True:
         request = get_request(db)
         if request:
-            logging.debug('dispatch request from db: %s', request)
-            yield request
+            yield {'request': request, 'work_dir': work_dir}
         else:
             break
 
 
-def fetch(request):
+def worker_init():
 
-    client = pymongo.MongoClient()
-    db = client.crawling
+    global WORKER_STATE
+    WORKER_STATE = pymongo.MongoClient()
 
-    for request, result in fetch_and_upload(request):
+
+def worker(item):
+
+    db = WORKER_STATE.crawling
+
+    for request, result in fetch_and_upload(item['request'], item['work_dir']):
+        logging.info('result: %s for %s', result, request['fetch']['url'])
         set_completed(db, request, result)
 
 
