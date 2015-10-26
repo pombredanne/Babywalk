@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 
-def _fetch(request, working_dir):
+def fetch_warc(request, working_dir):
 
     depth = request['depth']
     seed = request['url']
@@ -36,12 +36,12 @@ def _fetch(request, working_dir):
     return os.path.join(working_dir, 'result.warc.gz')
 
 
-def _upload(request, warc_file):
+def _upload(request, result_file):
 
-    if not os.path.exists(warc_file):
+    if not os.path.exists(result_file):
         return None
 
-    with open(warc_file, mode='rb') as handle:
+    with open(result_file, mode='rb') as handle:
         boto3.resource('s3') \
              .Bucket(request['bucket']) \
              .put_object(Key=request['object'],
@@ -56,6 +56,6 @@ def fetch_and_upload(requests, directory):
 
     for request in requests:
         with tempfile.TemporaryDirectory(dir=directory) as tmpdir:
-            warcfile = _fetch(request['fetch'], tmpdir)
+            warcfile = fetch_warc(request['fetch'], tmpdir)
             result = _upload(request['upload'], warcfile)
             yield (request, result)

@@ -26,6 +26,7 @@ def teardown_module():
     COLLECTION = None
 
 
+@nose.tools.nottest
 def cleanup_db():
     COLLECTION.delete_many({})
 
