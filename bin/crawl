@@ -24,7 +24,7 @@ def main():
     logging.basicConfig(format='crawl: %(levelname)s: %(message)s',
                         level=logging_level)
 
-    pool = multiprocessing.Pool(400, initializer=worker_init)
+    pool = multiprocessing.Pool(200, initializer=worker_init)
     pool.imap_unordered(worker, generator(args.tempdir))
     pool.close()
     pool.join()
@@ -45,17 +45,24 @@ def generator(work_dir):
 
 def worker_init():
 
+    mongo = pymongo.MongoClient()
+
+    import boto3
+    boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
+    aws_s3 = boto3.resource('s3')
+
     global WORKER_STATE
-    WORKER_STATE = pymongo.MongoClient()
+    WORKER_STATE = (mongo, aws_s3)
 
 
 def worker(item):
 
-    db = WORKER_STATE.crawling
+    global WORKER_STATE
+    (mongo, aws_s3) = WORKER_STATE
 
-    for request, result in fetch_and_upload(item['request'], item['work_dir']):
+    for request, result in fetch_and_upload(item['request'], item['work_dir'], aws_s3):
         logging.info('result: %s for %s', result, request['fetch']['url'])
-        set_completed(db, request, result)
+        set_completed(mongo.crawling, request, result)
 
 
 if __name__ == '__main__':

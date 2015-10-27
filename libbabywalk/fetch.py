@@ -35,31 +35,28 @@ def fetch_warc(request, working_dir):
     return os.path.join(working_dir, 'result.warc.gz')
 
 
-def _upload(request, result_file):
+def _upload(request, result_file, aws_s3):
 
     if not os.path.exists(result_file):
         return None
 
-    import boto3
-    boto3.set_stream_logger('boto3.resources', logging.CRITICAL)
     with open(result_file, mode='rb') as handle:
-        boto3.resource('s3') \
-             .Bucket(request['bucket']) \
-             .put_object(Key=request['object'],
-                         ContentType='application/x-gzip',
-                         Body=handle.read())
+        aws_s3.Bucket(request['bucket']) \
+              .put_object(Key=request['object'],
+                          ContentType='application/x-gzip',
+                          Body=handle.read())
 
     logging.info('content uploaded to %s bucket as %s', request['bucket'], request['object'])
     return 's3://{}/{}'.format(request['bucket'], request['object'])
 
 
-def fetch_and_upload(requests, directory):
+def fetch_and_upload(requests, directory, aws_s3):
 
     for request in requests:
         try:
             with tempfile.TemporaryDirectory(dir=directory) as tmpdir:
                 warcfile = fetch_warc(request['fetch'], tmpdir)
-                result = _upload(request['upload'], warcfile)
+                result = _upload(request['upload'], warcfile, aws_s3)
         except Exception:
             logging.exception('problem with crawling "%s"', request['fetch']['url'])
             result = 'failed to crawl'
