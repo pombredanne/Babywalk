@@ -2,10 +2,64 @@ import logging
 import pymongo
 import urllib.parse
 
+""" The schema of the schemaless db:
 
-class State(object):
+    collection seeds: {
+        _id:    <uuid3 of the seed url>,
+        seed:   <the seed url>,
+        ids:    [ <some id> ],
+        tags:   [ <some tag> ]
+    }
+    collection requests: {
+        _id:    <request id>,
+        name:   <request name>,
+        target: <bucket name>,
+        groups: [
+            {
+                tag: <tag name>,
+                depth: <number>
+            }
+        ]
+    }
+    collection results: {
+        _id:    <result id>,
+        request: {
+            seed:   <url>,
+            depth:  <number>,
+            id:     <request id>
+        }
+        result: {
+            location: {
+                bucket: <bucket name>,
+                object: <object name>
+            },
+            statistic: [
+                {
+                    url: <page url>,
+                    status: <http status codes>,
+                    mime: <mime type of response>
+                }
+            ]
+        }
+    }
 
-    Requested, Running, Completed = range(3)
+    collection request_queue: {
+        _id:    <uuid3 of the seed url>,
+        status: <boolean sent to worker or not>
+        host:   <hostname from the url>,
+        requests: [ {
+            fetch: {
+                seed:   <url>,
+                depth:  <number>,
+                id:     <request id>
+            },
+            upload: {
+                bucket: <target bucket name>
+                object: <uuid3.requestid.warc.gz>
+            }
+        } ]
+    }
+"""
 
 
 def record_request(db, seed, request):
