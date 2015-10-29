@@ -18,11 +18,10 @@ def fetch_warc(request, working_dir):
         '.wmv', '.mov'
     }
 
-    cmd = ['wget', '--recursive', '--level={}'.format(depth), '--tries=5',
-           '--dns-timeout=30', '--connect-timeout=5', '--read-timeout=5',
-           '--timestamping', '--wait=5', '--random-wait', '--no-parent',
-           '--no-verbose', '--no-check-certificate',
-           '--reject=' + ','.join(exts),
+    cmd = ['wget', '--quiet', '--recursive', '--no-parent', '--timestamping',
+           '--wait=5', '--random-wait', '--tries=5', '--dns-timeout=30',
+           '--connect-timeout=5', '--read-timeout=5', '--no-check-certificate',
+           '--level={}'.format(depth), '--reject=' + ','.join(exts),
            '--reject=' + ','.join(ext.upper() for ext in exts),
            '--warc-file=result', '--warc-tempdir=.', seed]
 
@@ -43,7 +42,6 @@ def _upload(request, result_file, aws_s3):
                           ContentType='application/x-gzip',
                           Body=handle.read())
 
-    logging.info('content uploaded to %s bucket as %s', request['bucket'], request['object'])
     return 's3://{}/{}'.format(request['bucket'], request['object'])
 
 
@@ -55,7 +53,7 @@ def fetch_and_upload(requests, directory, aws_s3):
                 warcfile = fetch_warc(request['fetch'], tmpdir)
                 result = _upload(request['upload'], warcfile, aws_s3)
         except Exception as ex:
-            logging.exception('problem with crawling "%s"', request['fetch']['url'])
+            logging.exception('failed to crawl: "%s"', request['fetch']['url'])
             result = 'failed to crawl: {}'.format(str(ex))
         finally:
             yield (request, result)
