@@ -14,7 +14,6 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='count', default=0)
-    parser.add_argument('--mongo', metavar='<mongo url>', required=True)
     parser.add_argument('--input',
                         metavar='<file>',
                         dest='seeds',
@@ -28,7 +27,7 @@ def main():
     logging.basicConfig(format='seed: %(levelname)s: %(message)s',
                         level=logging_level)
 
-    client = pymongo.MongoClient(args.mongo)
+    client = pymongo.MongoClient()
     db = client.crawling
 
     for seed in read_seeds_from_file(args.seeds):
