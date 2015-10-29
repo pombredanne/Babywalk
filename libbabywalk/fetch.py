@@ -27,10 +27,7 @@ def fetch_warc(request, working_dir):
            '--warc-file=result', '--warc-tempdir=.', seed]
 
     logging.debug('execute %s', cmd)
-    ec = subprocess.call(cmd,
-                         cwd=working_dir,
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT)
+    ec = subprocess.call(cmd, cwd=working_dir, timeout=3600)
     logging.debug('finished crawling %s with %s', cmd[-1], ec)
     return os.path.join(working_dir, 'result.warc.gz')
 
@@ -57,8 +54,8 @@ def fetch_and_upload(requests, directory, aws_s3):
             with tempfile.TemporaryDirectory(dir=directory) as tmpdir:
                 warcfile = fetch_warc(request['fetch'], tmpdir)
                 result = _upload(request['upload'], warcfile, aws_s3)
-        except Exception:
+        except Exception as ex:
             logging.exception('problem with crawling "%s"', request['fetch']['url'])
-            result = 'failed to crawl'
+            result = 'failed to crawl: {}'.format(str(ex))
         finally:
             yield (request, result)
