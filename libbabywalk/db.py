@@ -6,10 +6,10 @@ import urllib.parse
 
     collection seeds: {
         _id:    <uuid3 of the seed url>,
-        seed:   <the seed url>,
-        ids:    [ <some id> ],
+        url:    <the seed url>,
         tags:   [ <some tag> ]
     }
+
     collection requests: {
         _id:    <request id>,
         name:   <request name>,
@@ -21,8 +21,10 @@ import urllib.parse
             }
         ]
     }
+
     collection results: {
         _id:    <result id>,
+        timestamp:  <date and time>
         request: {
             seed:   <url>,
             depth:  <number>,
@@ -35,16 +37,19 @@ import urllib.parse
             },
             statistic: [
                 {
-                    url: <page url>,
+                    url:    <page url>,
+                    offset: <offset within warc file>,
+
                     status: <http status codes>,
-                    mime: <mime type of response>
+                    mime:   <mime type of response>,
+                    links:  [ { 'from': <page url>, 'text': <link text> } ]
                 }
             ]
         }
     }
 
     collection request_queue: {
-        _id:    <uuid3 of the seed url>,
+        _id:    <some id>,
         status: <boolean sent to worker or not>
         host:   <hostname from the url>,
         requests: [ {

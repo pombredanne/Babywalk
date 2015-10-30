@@ -9,24 +9,24 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='count', default=0)
 
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest='command')
 
     parser_as = subparsers.add_parser('seed-add')
-    parser_as_file = parser_as.add_argument_group('from file group')
-    parser_as_file.add_argument('--from-file', metavar='<file>')
+    parser_as_file = parser_as.add_argument_group('tsv file')
+    parser_as_file.add_argument('--input-file', metavar='<file>')
     parser_as_file.add_argument('--url-field', metavar='<field name>')
-    parser_as_file.add_argument('--id-field', metavar='<field name>')
     parser_as.add_argument('--tag', metavar='<tag>')
     parser_as.add_argument('--dry-run', action='store_true')
 
     parser_qs = subparsers.add_parser('seed-query')
-    parser_qs.add_argument('--tag', metavar='<tag>')
+    parser_qs_group = parser_qs.add_mutually_exclusive_group()
+    parser_qs_group.add_argument('--url', metavar='<seed>')
+    parser_qs_group.add_argument('--tag', metavar='<tag>')
 
     parser_rs = subparsers.add_parser('seed-remove')
-    parser_rs_file = parser_rs.add_argument_group('from file group')
-    parser_rs_file.add_argument('--from-file', metavar='<file>')
+    parser_rs_file = parser_rs.add_argument_group('tsv file')
+    parser_rs_file.add_argument('--input-file', metavar='<file>')
     parser_rs_file.add_argument('--url-field', metavar='<field name>')
-    parser_rs_file.add_argument('--id-field', metavar='<field name>')
     parser_rs.add_argument('--tag', metavar='<tag>')
     parser_rs.add_argument('--dry-run', action='store_true')
 
@@ -58,6 +58,8 @@ def main():
     logging_level = logging.WARNING - (10 * min(args.verbose, 3))
     logging.basicConfig(format='crawlctl: %(levelname)s: %(message)s',
                         level=logging_level)
+
+    logging.debug('parsed parameters: %s', args)
 
 
 if __name__ == '__main__':
