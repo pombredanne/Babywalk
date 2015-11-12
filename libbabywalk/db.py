@@ -1,5 +1,7 @@
 import logging
 import pymongo
+import uuid
+import datetime
 import urllib.parse
 
 """ The schema of the schemaless db:
@@ -11,30 +13,29 @@ import urllib.parse
     }
 
     collection requests: {
-        _id:    <request id>,
-        name:   <request name>,
-        target: <bucket name>,
-        groups: [
-            {
-                tag: <tag name>,
-                depth: <number>
-            }
-        ]
+        _id:    <some id>,
+        status: <boolean sent to worker or not>
+        when:   <date and time>
+        host:   <hostname from the url>,
+        requests: [ {
+            fetch: {
+                seed:   <url>,
+                depth:  <number>
+            },
+            upload: <s3 location uri>
+        } ]
     }
 
     collection results: {
         _id:    <result id>,
-        timestamp:  <date and time>
+        when:   <date and time>
         request: {
             seed:   <url>,
-            depth:  <number>,
-            id:     <request id>
+            depth:  <number>
         }
         result: {
-            location: {
-                bucket: <bucket name>,
-                object: <object name>
-            },
+            location: <s3 location uri>,
+            error:    <error message>,
             statistic: [
                 {
                     url:    <page url>,
@@ -47,112 +48,122 @@ import urllib.parse
             ]
         }
     }
-
-    collection request_queue: {
-        _id:    <some id>,
-        status: <boolean sent to worker or not>
-        host:   <hostname from the url>,
-        requests: [ {
-            fetch: {
-                seed:   <url>,
-                depth:  <number>,
-                id:     <request id>
-            },
-            upload: {
-                bucket: <target bucket name>
-                object: <uuid3.requestid.warc.gz>
-            }
-        } ]
-    }
 """
 
+def _require(checked, *names):
 
-def record_request(db, seed, request):
-    """ seed: {'url': '<url>', 'ppid': <identifier>}
-        request: {
-            'fetch': { 'url': '<url>', 'depth': <number> },
-            'upload': { 'bucket': '<bucket>', 'object': '<filename>' }
-        }
-    """
+    def _require_single(entry, name):
+        for element in name.split('.'):
+            if element in entry:
+                entry = entry[name]
+            else:
+                return False
+        return True
+
+    if not any(_require_single(checked, name) for name in names):
+        raise AssertionError('%s expected, but not found' % list(names))
+
+
+def record_seeds(db, seeds):
+
+    for seed in seeds:
+        _require(seed, 'url')
+        _require(seed, 'tag')
+
+        url = seed['url']
+        uid = str(uuid.uuid3(uuid.NAMESPACE_URL, url))
+
+        result = db.seeds.update_one(
+            {
+                '_id': uid
+            }, {
+                '$setOnInsert': {
+                    '_id': uid,
+                    'url': url
+                },
+                '$addToSet': {
+                    'tags': seed['tag']
+                }
+            }, True)
+        logging.debug('mongo update result: %s', result)
+
+
+def create_requests(db, request):
+    _require(request, 'depth')
+    _require(request, 'upload')
 
     def hostname(url):
-
         # better to use tldextract or tld package for this
         atoms = urllib.parse.urlsplit(url)
         frags = atoms.hostname.split('.')
         return atoms.hostname if frags[0] != 'www' else '.'.join(frags[1:])
 
-    url = seed['url']
-    result = db.places.update_one(
-        {
-            'seed': url
-        }, {
-            '$setOnInsert': {
-                'seed': url,
-                'host': hostname(url)
-            },
-            '$addToSet': {
-                'ppids': seed['ppid'],
-                'requests': request
-            },
-            '$max': {
-                'state': State.Requested
-            }
-        }, True)
-    logging.debug('mongo update result: %s', result)
+    for seed in db.seeds.find():
+        location = '{}/{}.warc.gz'.format(request['upload'], seed['_id'])
+        result = db.requests.update_one(
+            { 'host': hostname(seed['url']) },
+            {
+                '$setOnInsert': {
+                    'status': False,
+                    'when': 'not yet',
+                    'host': hostname(seed['url'])
+                },
+                '$addToSet': {
+                    'requests': {
+                        'upload': location,
+                        'fetch': {
+                            'seed': seed['url'],
+                            'depth': request['depth']
+                        }
+                    }
+                }
+            }, True)
+        logging.debug('mongo update result: %s', result)
 
 
-def get_request(db):
-    def flatten(iterator):
-        return (item for sublist in iterator for item in sublist)
+def get_requests(db):
 
-    pivot = db.places.find_one({'state': State.Requested})
-    if not pivot:
-        return None
-
-    filter_ = {'host': pivot['host'], 'state': State.Requested}
-
-    result = db.places.find(filter_, projection={'requests': True})
-    requests = list(flatten(entry['requests'] for entry in result))
-
-    db.places.update_many(filter_, {'$set': {'state': State.Running}})
-
-    return requests
+    while True:
+        request = db.requests.find_one_and_update(
+            { 'status': False },
+            { '$set': { 'status': True, 'when': str(datetime.datetime.now()) } },
+            return_document=pymongo.ReturnDocument.AFTER
+        )
+        if not request:
+            break
+        yield request
 
 
 def set_completed(db, request, result):
+    _require(request, 'seed')
+    _require(request, 'depth')
+    _require(result, 'location', 'error')
 
-    db.places.update_one(
+    url = request['seed']
+    uid = str(uuid.uuid3(uuid.NAMESPACE_URL, url))
+
+    db.results.insert_one(
         {
-            'seed': request['fetch']['url']
-        }, {
-            '$set': {
-                'state': State.Completed
-            },
-            '$pull': {
-                'requests': request
-            },
-            '$addToSet': {
-                'results': {
-                    'request': request['fetch'],
-                    'result': result
-                }
-            }
-        })
+            '_id': uid,
+            'when': str(datetime.datetime.now()),
+            'request': request,
+            'result': result
+        }
+    )
 
 
 def query_completed(db):
 
-    for entry in db.places.find(
-        {'state': State.Completed},
-        projection=
-        {'_id': False,
-         'seed': True,
-         'results': True,
-         'ppids': True}):
-        for result in entry['results']:
-            yield {
-                'seed': entry['seed'],
-                'ppids': entry['ppids'],
-                'results': result['result']
-            }
+    for result in db.results.find():
+        if result['result'].get('location'):
+            seed = db.seeds.find_one({'_id': result['_id']})
+            if seed:
+                yield {
+                    'seed': seed['url'],
+                    'result': result['result']['location'],
+                    'tags': seed['tags']
+                }
+            else:
+                logging.error('no seed for result %s', result)
+        else:
+            logging.warning('failed fetch %s', result['result']['error'])
