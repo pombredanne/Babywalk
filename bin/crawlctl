@@ -56,7 +56,7 @@ def main():
     args = parser.parse_args()
 
     logging_level = logging.WARNING - (10 * min(args.verbose, 3))
-    logging.basicConfig(format='crawlctl: %(levelname)s: %(message)s',
+    logging.basicConfig(format='%(levelname)s: %(asctime)s: %(message)s',
                         level=logging_level)
 
     logging.debug('parsed parameters: %s', args)

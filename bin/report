@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
 
     logging_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(format='crawl: %(levelname)s: %(message)s',
+    logging.basicConfig(format='%(levelname)s: %(asctime)s: %(message)s',
                         level=logging_level)
 
     client = pymongo.MongoClient()
