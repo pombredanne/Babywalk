@@ -5,52 +5,76 @@ import argparse
 import logging
 import uuid
 import pymongo
+import urllib.parse
 
-from libbabywalk.inputs import read_seeds_from_file
-from libbabywalk.db import record_request
+from libbabywalk.inputs import read_seeds_from_s3
+from libbabywalk.db import record_seeds, create_requests
 
 
 def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='count', default=0)
-    parser.add_argument('--input',
-                        metavar='<file>',
-                        dest='seeds',
-                        required=True)
-    parser.add_argument('--bucket', metavar='<bucket>', required=True)
-    parser.add_argument('--depth', metavar='<number>', required=True)
-    parser.add_argument('--tag', default='content')
+
+    parser.add_argument('--target', metavar='<s3 uri>', required=True)
+
+    parser_file = parser.add_argument_group('tsv file')
+    parser_file.add_argument('--input-file', metavar='<file>', default='seeds.tsv')
+    parser_file.add_argument('--url-field', metavar='<field name>', required=True)
+    parser_file.add_argument('--tag-field', metavar='<field name>', required=True)
+
+    parser_crawl = parser.add_argument_group('crawl')
+    parser_crawl.add_argument('--depth', metavar='<number>', required=True)
+    parser_crawl.add_argument('--output', metavar='<object>', default='content')
     args = parser.parse_args()
 
-    logging_level = logging.DEBUG if args.verbose else logging.INFO
+    logging_level = logging.WARNING - min(logging.WARNING, (10 * args.verbose))
     logging.basicConfig(format='%(levelname)s: %(asctime)s: %(message)s',
                         level=logging_level)
 
     client = pymongo.MongoClient()
     db = client.crawling
 
-    for seed in read_seeds_from_file(args.seeds):
-        logging.debug('file entry: %s', seed)
-        request = make_request(seed['url'], args)
-        logging.debug('created request: %s', request)
-        record_request(db, seed, request)
+    convert = to_seed(args.url_field, args.tag_field)
 
+    stream = read_seeds_from_s3(args.target, args.input_file)
+    seeds = normalize(convert(entry) for entry in stream)
 
-def make_request(url, args):
+    record_seeds(db, seeds)
 
-    uid = uuid.uuid3(uuid.NAMESPACE_URL, url)
-    return {
-        'fetch': {
-            'url': url,
-            'depth': args.depth
-        },
-        'upload': {
-            'bucket': args.bucket,
-            'object': '{}.{}.warc.gz'.format(str(uid), args.tag)
-        }
+    request = {
+        'depth': args.depth,
+        'upload': args.target + '/' + args.output
     }
+    create_requests(db, request)
 
+
+def normalize(iterator):
+
+    def norm(url):
+        atoms = urllib.parse.urlsplit(url)
+        if not atoms.scheme:
+            return norm('http://' + url)
+        path = atoms.path if atoms.path else '/'
+        return urllib.parse.urlunsplit((atoms.scheme, atoms.netloc, path,
+                                        atoms.query, atoms.fragment))
+
+    for seed in iterator:
+        url = seed.get('url')
+        if url:
+            seed.update({'url': norm(url)})
+            yield seed
+
+
+def to_seed(url_field, tag_field):
+
+    def wrapper(element):
+        return {
+            'url': element[url_field],
+            'tag': element[tag_field]
+        }
+
+    return wrapper
 
 if __name__ == '__main__':
     sys.exit(main())
