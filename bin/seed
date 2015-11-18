@@ -3,12 +3,11 @@
 import sys
 import argparse
 import logging
-import uuid
 import pymongo
-import validators
 
-from libbabywalk.inputs import read_seeds_from_s3
+from libbabywalk.inputs import read_seeds_from_s3, read_seeds_from_file
 from libbabywalk.db import record_seeds, create_requests
+from libbabywalk.url import validate
 
 
 def main():
@@ -32,33 +31,27 @@ def main():
     logging.basicConfig(format='%(levelname)s: %(asctime)s: %(message)s',
                         level=logging_level)
 
-    client = pymongo.MongoClient()
+    client = pymongo.MongoClient(w=0)
     db = client.crawling
 
-    convert = to_seed(args.url_field, args.tag_field)
+    raw_seeds = (
+        {
+            'url': element[args.url_field],
+            'tag': element[args.tag_field]
+        #} for element in read_seeds_from_s3(args.target, args.input_file)
+        } for element in read_seeds_from_file(args.input_file)
+        if args.url_field in element and args.tag_field in element)
 
-    stream = read_seeds_from_s3(args.target, args.input_file)
-    raw_seeds = (convert(entry) for entry in stream)
-    seeds = (seed for seed in raw_seeds if validators.url.url(seed['url']))
+    seeds = validate(raw_seeds)
 
     record_seeds(db, seeds)
 
-    request = {
-        'depth': args.depth,
-        'upload': args.target + '/' + args.output
-    }
-    create_requests(db, request)
+    #request = {
+    #    'depth': args.depth,
+    #    'upload': args.target + '/' + args.output
+    #}
+    #create_requests(db, request)
 
-
-def to_seed(url_field, tag_field):
-
-    def wrapper(element):
-        return {
-            'url': element[url_field],
-            'tag': element[tag_field]
-        }
-
-    return wrapper
 
 if __name__ == '__main__':
     sys.exit(main())

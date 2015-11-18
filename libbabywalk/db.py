@@ -68,24 +68,21 @@ def record_seeds(db, seeds):
 
     for seed in seeds:
         _require(seed, 'url')
+        _require(seed, 'uid')
         _require(seed, 'tag')
-
-        url = seed['url']
-        uid = str(uuid.uuid3(uuid.NAMESPACE_URL, url))
 
         result = db.seeds.update_one(
             {
-                '_id': uid
+                '_id': seed['uid']
             }, {
                 '$setOnInsert': {
-                    '_id': uid,
-                    'url': url
+                    '_id': seed['uid'],
+                    'url': seed['url']
                 },
                 '$addToSet': {
                     'tags': seed['tag']
                 }
             }, True)
-        logging.debug('mongo update result: %s', result)
 
 
 def create_requests(db, request):
@@ -118,7 +115,6 @@ def create_requests(db, request):
                     }
                 }
             }, True)
-        logging.debug('mongo update result: %s', result)
 
 
 def get_requests(db):

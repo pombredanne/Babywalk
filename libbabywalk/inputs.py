@@ -15,3 +15,11 @@ def read_seeds_from_s3(path, filename):
         handle = codec(response.get('Body'), 'ignore')
 
         return (row for row in csv.DictReader(handle, delimiter='\t'))
+
+
+def read_seeds_from_file(filename):
+
+    with open(filename, mode='r', encoding='utf-8') as handle:
+        reader = csv.DictReader(handle, delimiter='\t')
+        for row in reader:
+            yield row
