@@ -5,7 +5,7 @@ import argparse
 import logging
 import uuid
 import pymongo
-import urllib.parse
+import validators
 
 from libbabywalk.inputs import read_seeds_from_s3
 from libbabywalk.db import record_seeds, create_requests
@@ -38,7 +38,8 @@ def main():
     convert = to_seed(args.url_field, args.tag_field)
 
     stream = read_seeds_from_s3(args.target, args.input_file)
-    seeds = normalize(convert(entry) for entry in stream)
+    raw_seeds = (convert(entry) for entry in stream)
+    seeds = (seed for seed in raw_seeds if validators.url.url(seed['url']))
 
     record_seeds(db, seeds)
 
@@ -47,23 +48,6 @@ def main():
         'upload': args.target + '/' + args.output
     }
     create_requests(db, request)
-
-
-def normalize(iterator):
-
-    def norm(url):
-        atoms = urllib.parse.urlsplit(url)
-        if not atoms.scheme:
-            return norm('http://' + url)
-        path = atoms.path if atoms.path else '/'
-        return urllib.parse.urlunsplit((atoms.scheme, atoms.netloc, path,
-                                        atoms.query, atoms.fragment))
-
-    for seed in iterator:
-        url = seed.get('url')
-        if url:
-            seed.update({'url': norm(url)})
-            yield seed
 
 
 def to_seed(url_field, tag_field):
