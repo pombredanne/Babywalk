@@ -16,7 +16,8 @@ setup(
     license='LICENSE.txt',
     url='https://github.com/rizsotto/Babywalk',
     long_description=open('README.md').read(),
-    scripts=['bin/crawl'],
+    scripts=['bin/seed', 'bin/crawl', 'bin/report'],
+    packages=['libbabywalk'],
     install_requires=required,
     test_suite = 'nose.collector'
 )
