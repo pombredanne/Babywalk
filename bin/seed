@@ -30,6 +30,7 @@ def main():
     logging_level = logging.WARNING - min(logging.WARNING, (10 * args.verbose))
     logging.basicConfig(format='%(levelname)s: %(asctime)s: %(message)s',
                         level=logging_level)
+    logging.debug(args)
 
     client = pymongo.MongoClient(w=0)
     db = client.crawling
@@ -46,11 +47,11 @@ def main():
 
     record_seeds(db, seeds)
 
-    #request = {
-    #    'depth': args.depth,
-    #    'upload': args.target + '/' + args.output
-    #}
-    #create_requests(db, request)
+    request = {
+        'depth': args.depth,
+        'upload': args.target + '/' + args.output
+    }
+    create_requests(db, request)
 
 
 if __name__ == '__main__':

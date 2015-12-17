@@ -117,7 +117,7 @@ def create_requests(db, request):
             }, True)
 
 
-def get_requests(db):
+def get_request(db):
 
     while True:
         request = db.requests.find_one_and_update(
